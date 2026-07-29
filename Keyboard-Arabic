@@ -1,0 +1,74 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "LAW | كيبورد العرب",
+   LoadingTitle = "جاري تحميل سكربت ماب الكيبورد العرب",
+   LoadingSubtitle = "بواسطة المطور LAW",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false,
+})
+
+-- تبويب التفريم البسيط
+local FarmTab = Window:CreateTab("التفريم", 4483362458)
+
+local selectedStage = "15" -- الستيج الافتراضي
+local endPos = Vector3.new(-7341.1416015625, 1877.9173583984375, 1379.6002197265625) -- إحداثيات ستيج 15 كمثال أساسي
+
+FarmTab:CreateSection("اختر الستيج وفعل التفريم")
+
+-- اختيار الستيج
+FarmTab:CreateInput({
+   Name = "اختر رقم الستيج",
+   PlaceholderText = "اكتب رقم الستيج هنا (مثال: 15)",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+      selectedStage = Text
+      -- هنا يمكنك تعديل الإحداثيات لكل ستيج اذا حبيت مستقبلاً
+      if Text == "15" then
+         endPos = Vector3.new(-7341.1416015625, 1877.9173583984375, 1379.6002197265625)
+      end
+   end,
+})
+
+-- زر تفريم تلقائي للستيج المختار
+FarmTab:CreateToggle({
+   Name = "تشغيل التفريم",
+   CurrentValue = false,
+   Flag = "SimpleStageFarm",
+   Callback = function(Value)
+      getgenv().StageFarmActive = Value
+      task.spawn(function()
+         while getgenv().StageFarmActive do
+            pcall(function()
+               local player = game:GetService("Players").LocalPlayer
+               local character = player.Character
+               local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+               
+               if rootPart then
+                  local currentPos = rootPart.CFrame
+                  rootPart.CFrame = CFrame.new(endPos)
+                  task.wait(0.2)
+                  rootPart.CFrame = currentPos
+               end
+            end)
+            task.wait(1)
+         end
+      end)
+   end,
+})
+
+-- تبويب معلومات المطور (بالأخير مثل ما طلبت)
+local DevTab = Window:CreateTab("معلومات المطور", 4483362458)
+
+DevTab:CreateSection("حسابات المطور LAW")
+
+DevTab:CreateParagraph({
+   Title = "قناة اليوتيوب",
+   Content = "اسم القناة: LAW | سكربتات\nيوزر القناة: @PGG00\nالمحتوى: أقوى سكربتات وهاكات روبلوكس"
+})
+
+DevTab:CreateParagraph({
+   Title = "قنوات التليجرام",
+   Content = "اشترك بقنوات التليجرام للحصول على التحديثات:\n@Lrzz0\n@Lrzz1\n@o0ou1"
+})
+
