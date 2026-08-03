@@ -1,0 +1,645 @@
+-- ScriptRB | MM2 Instant ESP + Coin Farm
+-- Оптимизировано для ScriptRB Executor
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ===== СОСТОЯНИЯ =====
+local State = {
+    CoinFarm = false,
+    FlySpeed = 30,
+    CollectDelay = 0.3,
+    ESPMurderer = false,
+    ESPSheriff = false,
+    Minimized = false,
+    Dragging = false,
+    DragStart = nil,
+    StartPos = nil
+}
+
+-- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+local function Corner(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r)
+    c.Parent = p
+end
+
+local function Stroke(p, t, clr)
+    local s = Instance.new("UIStroke")
+    s.Thickness = t
+    s.Color = clr or Color3.fromRGB(100, 100, 100)
+    s.Parent = p
+end
+
+local function Notify(title, text, dur)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = dur or 2
+        })
+    end)
+end
+
+local function MakeDraggable(frame)
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+    
+    frame.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    frame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+end
+
+-- ===== КОНСТРУКТОР ЧЕКБОКСА =====
+local function MakeCheckbox(parent, text, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -20, 0, 30)
+    frame.Position = UDim2.new(0, 10, 0, #parent:GetChildren() * 32 + 5)
+    frame.BackgroundTransparency = 1
+    frame.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 130, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 22, 0, 22)
+    box.Position = UDim2.new(1, -28, 0.5, -11)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    box.BorderSizePixel = 0
+    box.Parent = frame
+    Corner(box, 4)
+    Stroke(box, 1.5, Color3.fromRGB(150, 150, 150))
+
+    local check = Instance.new("TextLabel")
+    check.Size = UDim2.new(1, 0, 1, 0)
+    check.BackgroundTransparency = 1
+    check.Text = "✓"
+    check.TextColor3 = Color3.fromRGB(255, 255, 255)
+    check.Font = Enum.Font.GothamBold
+    check.TextSize = 16
+    check.Visible = false
+    check.Parent = box
+
+    local enabled = false
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.Parent = frame
+
+    btn.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        check.Visible = enabled
+        if enabled then
+            box.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+            Stroke(box, 1.5, Color3.fromRGB(0, 140, 255))
+        else
+            box.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            Stroke(box, 1.5, Color3.fromRGB(150, 150, 150))
+        end
+        if callback then callback(enabled) end
+    end)
+
+    return { SetState = function(state) end }
+end
+
+-- ===== КОНСТРУКТОР ПОЛЯ ВВОДА =====
+local function MakeInput(parent, labelText, defaultValue, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -20, 0, 26)
+    frame.Position = UDim2.new(0, 10, 0, #parent:GetChildren() * 32 + 5)
+    frame.BackgroundTransparency = 1
+    frame.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 130, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0, 65, 0, 22)
+    input.Position = UDim2.new(1, -72, 0.5, -11)
+    input.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.Font = Enum.Font.Gotham
+    input.TextSize = 12
+    input.Text = tostring(defaultValue)
+    input.BorderSizePixel = 0
+    input.Parent = frame
+    Corner(input, 4)
+    Stroke(input, 1, Color3.fromRGB(100, 100, 100))
+
+    input.FocusLost:Connect(function()
+        local val = tonumber(input.Text)
+        if val and val > 0 then
+            if callback then callback(val) end
+        else
+            input.Text = tostring(defaultValue)
+        end
+    end)
+
+    return input
+end
+
+-- ===== КОНСТРУКТОР КНОПКИ =====
+local function MakeButton(parent, text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 28)
+    btn.Position = UDim2.new(0, 10, 0, #parent:GetChildren() * 32 + 5)
+    btn.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.Text = text
+    btn.BorderSizePixel = 0
+    btn.Parent = parent
+    Corner(btn, 4)
+    
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
+
+-- ===== СОЗДАНИЕ GUI =====
+local gui = Instance.new("ScreenGui")
+gui.Name = "ScriptRB_MM2"
+gui.ResetOnSpawn = false
+gui.Parent = CoreGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 240, 0, 280)
+main.Position = UDim2.new(0.5, -120, 0.5, -140)
+main.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Parent = gui
+Corner(main, 10)
+Stroke(main, 1, Color3.fromRGB(40, 40, 40))
+
+-- Шапка
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 32)
+header.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+header.BorderSizePixel = 0
+header.Parent = main
+Corner(header, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -70, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "ScriptRB | MM2"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = header
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 24, 0, 24)
+minBtn.Position = UDim2.new(1, -54, 0.5, -12)
+minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+minBtn.Text = "−"
+minBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 18
+minBtn.BorderSizePixel = 0
+minBtn.Parent = header
+Corner(minBtn, 4)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -28, 0.5, -12)
+closeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 14
+closeBtn.BorderSizePixel = 0
+closeBtn.Parent = header
+Corner(closeBtn, 4)
+
+closeBtn.MouseButton1Click:Connect(function()
+    State.CoinFarm = false
+    State.ESPMurderer = false
+    State.ESPSheriff = false
+    gui:Destroy()
+end)
+
+-- Перетаскивание
+MakeDraggable(header)
+
+-- Контент
+local content = Instance.new("ScrollingFrame")
+content.Size = UDim2.new(1, -5, 1, -40)
+content.Position = UDim2.new(0, 2, 0, 36)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.ScrollBarThickness = 3
+content.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 60)
+content.Parent = main
+
+local contentLayout = Instance.new("UIListLayout")
+contentLayout.Padding = UDim.new(0, 4)
+contentLayout.Parent = content
+
+-- Элементы GUI
+MakeCheckbox(content, "Auto Farm Coins", function(state)
+    State.CoinFarm = state
+    if state then
+        Notify("Farm", "Автосбор монет включён!", 2)
+    else
+        Notify("Farm", "Автосбор монет выключен!", 2)
+    end
+end)
+
+local speedInput = MakeInput(content, "Speed:", 30, function(val)
+    State.FlySpeed = val
+end)
+
+local delayInput = MakeInput(content, "Delay:", 0.3, function(val)
+    State.CollectDelay = val
+end)
+
+MakeCheckbox(content, "ESP Murderer", function(state)
+    State.ESPMurderer = state
+    if state then
+        Notify("ESP", "ESP Murderer включён!", 2)
+    else
+        Notify("ESP", "ESP Murderer выключен!", 2)
+    end
+end)
+
+MakeCheckbox(content, "ESP Sheriff", function(state)
+    State.ESPSheriff = state
+    if state then
+        Notify("ESP", "ESP Sheriff включён!", 2)
+    else
+        Notify("ESP", "ESP Sheriff выключен!", 2)
+    end
+end)
+
+MakeButton(content, "Teleport to Coins", function()
+    Notify("Teleport", "Телепортация к монетам...", 2)
+end)
+
+-- Обновление CanvasSize
+content.ChildAdded:Connect(function()
+    content.CanvasSize = UDim2.new(0, 0, 0, contentLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-- Сворачивание
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    content.Visible = not minimized
+    if minimized then
+        main:TweenSize(UDim2.new(0, 240, 0, 32), "Out", "Quad", 0.3, true)
+        minBtn.Text = "▲"
+    else
+        main:TweenSize(UDim2.new(0, 240, 0, 280), "Out", "Quad", 0.3, true)
+        minBtn.Text = "−"
+    end
+end)
+
+-- ============================================
+-- ===== ЛОГИКА ФАРМА МОНЕТ =====
+-- ============================================
+local coinCache = {}
+local lastScan = 0
+local currentTween = nil
+
+local function forceNoClip()
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end
+
+local function findCoins()
+    local coins = {}
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not obj:IsA("Terrain") and obj.CanCollide == false then
+            local n = obj.Name:lower()
+            if n:find("coin") or n:find("money") or n:find("gem") or n:find("gold") or n:find("cash") or n:find("collect") or n:find("loot") then
+                table.insert(coins, obj)
+            end
+        end
+    end
+    return coins
+end
+
+local function collectCoin(coin)
+    if not coin or not coin.Parent then return false end
+    local char = LocalPlayer.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+
+    root.CFrame = CFrame.new(coin.Position + Vector3.new(0, 2, 0))
+    task.wait(0.05)
+    firetouchinterest(root, coin, 0)
+    firetouchinterest(root, coin, 1)
+    
+    local cd = coin:FindFirstChildOfClass("ClickDetector")
+    if cd then fireclickdetector(cd) end
+    
+    local prompt = coin:FindFirstChildOfClass("ProximityPrompt") or (coin.Parent and coin.Parent:FindFirstChildOfClass("ProximityPrompt"))
+    if prompt then fireproximityprompt(prompt) end
+    
+    task.wait(0.1)
+    return not coin.Parent
+end
+
+local function moveToPosition(targetPos)
+    local char = LocalPlayer.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    
+    local dist = (root.Position - targetPos).Magnitude
+    if dist < 0.5 then return true end
+
+    local speed = State.FlySpeed * (0.8 + math.random() * 0.4)
+    local duration = math.clamp(dist / speed, 0.2, 3.0)
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
+    currentTween = tween
+    
+    local finished = false
+    tween.Completed:Connect(function()
+        finished = true
+        currentTween = nil
+    end)
+    tween:Play()
+    
+    local startTime = tick()
+    while not finished do
+        if not root.Parent then
+            if currentTween then currentTween:Cancel() end
+            return false
+        end
+        forceNoClip()
+        if tick() - startTime > 5 then
+            if currentTween then currentTween:Cancel() end
+            break
+        end
+        task.wait(0.1)
+    end
+    return true
+end
+
+-- Фоновый поиск монет
+task.spawn(function()
+    while true do
+        if State.CoinFarm then
+            if tick() - lastScan > 0.8 then
+                coinCache = findCoins()
+                lastScan = tick()
+            end
+        else
+            coinCache = {}
+            lastScan = 0
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- Основной цикл фарма
+task.spawn(function()
+    while true do
+        if State.CoinFarm then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local root = char.HumanoidRootPart
+                forceNoClip()
+                
+                if root.Position.Y < -10 then
+                    root.CFrame = CFrame.new(root.Position.X, 5, root.Position.Z)
+                end
+                
+                if #coinCache > 0 then
+                    local nearest = coinCache[1]
+                    local minDist = (root.Position - nearest.Position).Magnitude
+                    for _, coin in pairs(coinCache) do
+                        local d = (root.Position - coin.Position).Magnitude
+                        if d < minDist then
+                            nearest = coin
+                            minDist = d
+                        end
+                    end
+                    
+                    if nearest and nearest.Parent then
+                        local safePos = nearest.Position + Vector3.new(0, 3 + math.random() * 2, 0)
+                        moveToPosition(safePos)
+                        collectCoin(nearest)
+                        for i, c in pairs(coinCache) do
+                            if c == nearest then
+                                table.remove(coinCache, i)
+                                break
+                            end
+                        end
+                        local delay = State.CollectDelay * (0.8 + math.random() * 0.4)
+                        task.wait(delay)
+                    end
+                else
+                    root.CFrame = root.CFrame + Vector3.new(math.random(-3,3), 0, math.random(-3,3))
+                    task.wait(1.5 + math.random())
+                end
+            else
+                task.wait(1)
+            end
+        else
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
+                end
+            end
+            task.wait(0.5)
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- ============================================
+-- ===== ЛОГИКА ESP =====
+-- ============================================
+local espObjects = {}
+
+local function clearESP()
+    for _, obj in pairs(espObjects) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
+    espObjects = {}
+end
+
+local function getRole(player)
+    if not player.Character then
+        return "Innocent"
+    end
+
+    local tool = player.Backpack and player.Backpack:FindFirstChildOfClass("Tool")
+    if not tool then
+        tool = player.Character:FindFirstChildOfClass("Tool")
+    end
+
+    if tool then
+        local name = tool.Name:lower()
+        if name:find("gun") or name:find("pistol") or name:find("revolver") or name:find("sheriff") then
+            return "Sheriff"
+        end
+        return "Murderer"
+    end
+
+    return "Innocent"
+end
+
+local function updateESP()
+    clearESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local role = getRole(player)
+            local head = player.Character.Head
+            local show = false
+            local color = Color3.fromRGB(255, 255, 255)
+
+            if role == "Murderer" and State.ESPMurderer then
+                show = true
+                color = Color3.fromRGB(255, 50, 50)
+            elseif role == "Sheriff" and State.ESPSheriff then
+                show = true
+                color = Color3.fromRGB(50, 150, 255)
+            end
+
+            if show then
+                local billboard = Instance.new("BillboardGui")
+                billboard.Size = UDim2.new(0, 120, 0, 24)
+                billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+                billboard.AlwaysOnTop = true
+                billboard.MaxDistance = 300
+                billboard.Parent = head
+                
+                local txt = Instance.new("TextLabel")
+                txt.Size = UDim2.new(1, 0, 1, 0)
+                txt.BackgroundTransparency = 1
+                txt.Text = role
+                txt.TextColor3 = color
+                txt.Font = Enum.Font.GothamBold
+                txt.TextSize = 14
+                txt.TextScaled = true
+                txt.Parent = billboard
+                table.insert(espObjects, billboard)
+
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = color
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.FillTransparency = 0.4
+                highlight.Adornee = player.Character
+                highlight.Parent = player.Character
+                table.insert(espObjects, highlight)
+            end
+        end
+    end
+end
+
+-- Цикл обновления ESP
+task.spawn(function()
+    while true do
+        if State.ESPMurderer or State.ESPSheriff then
+            updateESP()
+        else
+            clearESP()
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- ============================================
+-- ===== РЕСПАВН =====
+-- ============================================
+LocalPlayer.CharacterAdded:Connect(function(char)
+    coinCache = {}
+    lastScan = 0
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    if State.CoinFarm then
+        task.wait(0.5)
+        forceNoClip()
+    end
+end)
+
+-- ============================================
+-- ===== ЗАПУСК =====
+-- ============================================
+Notify("ScriptRB", "MM2 Farm + ESP загружены!", 3)
+Notify("ScriptRB", "Нажми F12 для открытия/закрытия", 3)
+
+-- Горячая клавиша F12
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F12 then
+        if gui.Parent then
+            gui.Enabled = not gui.Enabled
+            if gui.Enabled then
+                Notify("ScriptRB", "GUI открыт", 1)
+            end
+        end
+    end
+end)
